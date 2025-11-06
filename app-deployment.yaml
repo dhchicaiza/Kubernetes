@@ -1,4 +1,4 @@
-# app-deployment.yaml
+# app-deployment.yaml - Deployment de la aplicación Flask con ConfigMap y Secret
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -17,19 +17,33 @@ spec:
     spec:
       containers:
       - name: app-web
-        image: mi-app-web:v1 # Usamos la imagen local
-        imagePullPolicy: Never # Importante para usar la imagen local de Minikube
+        image: mi-app-web:v1
+        imagePullPolicy: Never  # Para usar imagen local de Minikube
         ports:
         - containerPort: 5000
         env:
+        # Variables desde ConfigMap
         - name: DB_HOST
-          value: "postgres-service" # Nombre del Service de la BD
-        - name: POSTGRES_USER
-          value: "registro_db"
-        - name: POSTGRES_PASSWORD
-          value: "123456"
+          valueFrom:
+            configMapKeyRef:
+              name: db-config
+              key: DB_HOST
         - name: POSTGRES_DB
-          value: "registro_db"
+          valueFrom:
+            configMapKeyRef:
+              name: db-config
+              key: POSTGRES_DB
+        - name: POSTGRES_USER
+          valueFrom:
+            configMapKeyRef:
+              name: db-config
+              key: POSTGRES_USER
+        # Variable sensible desde Secret
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: db-secret
+              key: POSTGRES_PASSWORD
 ---
 apiVersion: v1
 kind: Service

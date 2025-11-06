@@ -1,0 +1,42 @@
+# ConfigMap para configuración de la base de datos
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: db-config
+data:
+  POSTGRES_DB: "registro_db"
+  POSTGRES_USER: "usuario_db"
+  DB_HOST: "postgres-service"
+---
+# Secret para credenciales sensibles
+apiVersion: v1
+kind: Secret
+metadata:
+  name: db-secret
+type: Opaque
+stringData:
+  POSTGRES_PASSWORD: "clave_segura_123"
+---
+# ConfigMap para el script de inicialización de la BD
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: db-init-script
+data:
+  init-db.sql: |
+    -- Script de inicialización de la base de datos
+    CREATE TABLE IF NOT EXISTS registros (
+        id SERIAL PRIMARY KEY,
+        nombre VARCHAR(100) NOT NULL,
+        mensaje VARCHAR(255) NOT NULL,
+        fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Crear índice para mejorar el rendimiento de las consultas
+    CREATE INDEX IF NOT EXISTS idx_registros_fecha ON registros(fecha DESC);
+
+    -- Mensaje de confirmación
+    DO $$
+    BEGIN
+        RAISE NOTICE 'Tabla "registros" creada exitosamente';
+    END $$;
