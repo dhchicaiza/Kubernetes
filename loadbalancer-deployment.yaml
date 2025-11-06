@@ -1,0 +1,418 @@
+# ============================================================================
+# BALANCEADOR DE CARGA CON 2 PODS - CONFIGURACIÓN DETALLADA
+# ============================================================================
+# Este archivo configura un Deployment con 2 réplicas y un LoadBalancer
+# para distribuir el tráfico de manera equitativa entre los pods
+# ============================================================================
+
+---
+# ----------------------------------------------------------------------------
+# DEPLOYMENT: Define cómo se crean y gestionan los pods
+# ----------------------------------------------------------------------------
+apiVersion: apps/v1  # Versión de la API de Kubernetes para Deployments
+kind: Deployment      # Tipo de recurso: Deployment (gestiona réplicas de pods)
+metadata:
+  name: web-loadbalancer-deployment  # Nombre único del deployment
+  labels:
+    app: web-lb                      # Etiqueta principal para identificar este deployment
+    tier: frontend                   # Etiqueta para organizar por capa (frontend/backend)
+    version: v1                      # Etiqueta de versión para facilitar rollbacks
+
+spec:
+  # --------------------------------------------------------------------------
+  # NÚMERO DE RÉPLICAS: Define cuántos pods idénticos se ejecutarán
+  # --------------------------------------------------------------------------
+  replicas: 2  # AJUSTE CLAVE: 2 pods para balanceo de carga
+               # - Cada pod ejecutará una instancia idéntica de la aplicación
+               # - El LoadBalancer distribuirá el tráfico entre estos 2 pods
+               # - Si un pod falla, el otro sigue funcionando (alta disponibilidad)
+               # - Kubernetes mantiene automáticamente este número de réplicas
+
+  # --------------------------------------------------------------------------
+  # SELECTOR: Define qué pods pertenecen a este deployment
+  # --------------------------------------------------------------------------
+  selector:
+    matchLabels:
+      app: web-lb  # AJUSTE IMPORTANTE: Debe coincidir con las labels del template
+                   # - Kubernetes usa esto para identificar los pods a gestionar
+                   # - Debe ser consistente con el Service más abajo
+
+  # --------------------------------------------------------------------------
+  # ESTRATEGIA DE ACTUALIZACIÓN: Cómo actualizar los pods sin downtime
+  # --------------------------------------------------------------------------
+  strategy:
+    type: RollingUpdate  # Actualización gradual (rolling update)
+                        # - Actualiza los pods uno por uno sin detener el servicio
+                        # - Alternativas: Recreate (detiene todos y recrea)
+    rollingUpdate:
+      maxSurge: 1        # AJUSTE: Permite 1 pod adicional durante actualización
+                        # - Con 2 réplicas + maxSurge 1 = máximo 3 pods temporalmente
+                        # - Asegura capacidad extra durante el despliegue
+      maxUnavailable: 0  # AJUSTE: Ningún pod puede estar no disponible
+                        # - Garantiza que siempre haya al menos 2 pods funcionando
+                        # - Prioriza disponibilidad sobre velocidad de despliegue
+
+  # --------------------------------------------------------------------------
+  # TEMPLATE: Define la configuración de cada pod
+  # --------------------------------------------------------------------------
+  template:
+    metadata:
+      labels:
+        app: web-lb      # AJUSTE CRÍTICO: Debe coincidir con el selector
+        tier: frontend
+        version: v1
+      annotations:
+        # Anotaciones útiles para monitoreo y debugging
+        prometheus.io/scrape: "true"  # Si usas Prometheus para métricas
+        prometheus.io/port: "8080"
+        description: "Pod del balanceador de carga"
+
+    spec:
+      # ----------------------------------------------------------------------
+      # CONTENEDOR: Define la imagen y configuración del contenedor
+      # ----------------------------------------------------------------------
+      containers:
+      - name: nginx-web  # Nombre del contenedor dentro del pod
+        image: nginx:1.24-alpine  # AJUSTE: Imagen específica de nginx
+                                  # - Usa alpine para menor tamaño (ligera)
+                                  # - Versión 1.24 para estabilidad
+                                  # - NO usar 'latest' en producción (no reproducible)
+
+        # --------------------------------------------------------------------
+        # POLÍTICA DE PULL: Cuándo descargar la imagen
+        # --------------------------------------------------------------------
+        imagePullPolicy: IfNotPresent  # AJUSTE: Solo descarga si no existe localmente
+                                       # - IfNotPresent: usa cache si existe
+                                       # - Always: siempre descarga (más lento)
+                                       # - Never: solo usa local (para Minikube)
+
+        # --------------------------------------------------------------------
+        # PUERTOS: Qué puertos expone el contenedor
+        # --------------------------------------------------------------------
+        ports:
+        - containerPort: 80    # AJUSTE: Puerto donde escucha nginx
+          name: http          # Nombre descriptivo del puerto
+          protocol: TCP       # Protocolo (TCP o UDP)
+
+        # --------------------------------------------------------------------
+        # RECURSOS: Límites y solicitudes de CPU/memoria
+        # --------------------------------------------------------------------
+        resources:
+          # REQUESTS: Lo que el pod solicita (mínimo garantizado)
+          requests:
+            memory: "64Mi"   # AJUSTE: 64MB de RAM mínimos por pod
+            cpu: "100m"      # AJUSTE: 0.1 CPU (100 milicores) mínimos
+                            # - Kubernetes reserva estos recursos
+                            # - Con 2 pods = 128Mi RAM y 0.2 CPU total reservados
+
+          # LIMITS: Máximo que puede usar (techo)
+          limits:
+            memory: "256Mi"  # AJUSTE: Máximo 256MB de RAM por pod
+            cpu: "500m"      # AJUSTE: Máximo 0.5 CPU por pod
+                            # - Si excede memoria, el pod se reinicia (OOMKilled)
+                            # - Si excede CPU, se limita (throttling)
+
+        # --------------------------------------------------------------------
+        # PROBES: Verificaciones de salud del contenedor
+        # --------------------------------------------------------------------
+
+        # LIVENESS PROBE: ¿Está vivo el contenedor?
+        livenessProbe:
+          httpGet:
+            path: /         # AJUSTE: Ruta a verificar (/ para nginx)
+            port: 80        # Puerto donde hacer la petición
+            scheme: HTTP    # Protocolo (HTTP o HTTPS)
+          initialDelaySeconds: 15   # AJUSTE: Espera 15s antes de primera verificación
+                                    # - Da tiempo al contenedor para iniciarse
+          periodSeconds: 10         # AJUSTE: Verifica cada 10 segundos
+          timeoutSeconds: 3         # AJUSTE: Timeout de 3s por verificación
+          successThreshold: 1       # 1 éxito = contenedor OK
+          failureThreshold: 3       # AJUSTE: 3 fallos consecutivos = reinicia pod
+                                    # - Con 2 pods, si uno falla, el otro sigue sirviendo
+
+        # READINESS PROBE: ¿Está listo para recibir tráfico?
+        readinessProbe:
+          httpGet:
+            path: /         # AJUSTE: Ruta a verificar
+            port: 80
+            scheme: HTTP
+          initialDelaySeconds: 5    # AJUSTE: Primera verificación a los 5s
+                                    # - Más rápido que liveness (solo verifica si está listo)
+          periodSeconds: 5          # AJUSTE: Verifica cada 5 segundos
+          timeoutSeconds: 2         # Timeout de 2s
+          successThreshold: 1       # 1 éxito = puede recibir tráfico
+          failureThreshold: 3       # 3 fallos = quita del LoadBalancer (pero no reinicia)
+
+        # STARTUP PROBE: Para aplicaciones con inicio lento
+        startupProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 0    # Empieza inmediatamente
+          periodSeconds: 2          # Verifica cada 2 segundos
+          timeoutSeconds: 1
+          successThreshold: 1
+          failureThreshold: 15      # AJUSTE: 15 intentos * 2s = 30s máximo de inicio
+                                    # - Si no inicia en 30s, el pod se reinicia
+
+        # --------------------------------------------------------------------
+        # VARIABLES DE ENTORNO: Configuración del contenedor
+        # --------------------------------------------------------------------
+        env:
+        - name: NGINX_PORT
+          value: "80"
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name  # Nombre del pod (para logging)
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP   # IP del pod (para debugging)
+
+      # ----------------------------------------------------------------------
+      # AFINIDAD Y ANTI-AFINIDAD: Dónde colocar los pods
+      # ----------------------------------------------------------------------
+      affinity:
+        # ANTI-AFINIDAD: Evita colocar los 2 pods en el mismo nodo
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100  # AJUSTE: Prioridad alta (1-100)
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - web-lb
+              topologyKey: kubernetes.io/hostname
+              # EXPLICACIÓN: Kubernetes PREFIERE poner cada pod en un nodo diferente
+              # - Si hay 2 nodos disponibles, cada pod va a uno distinto
+              # - Si solo hay 1 nodo, ambos pods van ahí (no es obligatorio)
+              # - Mejora la alta disponibilidad: si un nodo falla, el otro sigue
+
+---
+# ============================================================================
+# LOADBALANCER SERVICE - DISTRIBUYE EL TRÁFICO ENTRE LOS 2 PODS
+# ============================================================================
+# El Service tipo LoadBalancer crea un balanceador de carga que distribuye
+# las peticiones entrantes de manera equitativa entre los pods disponibles
+# ============================================================================
+
+apiVersion: v1
+kind: Service   # Tipo de recurso: Service (punto de acceso a los pods)
+metadata:
+  name: web-loadbalancer-service  # Nombre del servicio
+  labels:
+    app: web-lb
+    tier: frontend
+  annotations:
+    # Anotaciones para configuración avanzada del LoadBalancer
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"  # Si usas AWS
+    description: "LoadBalancer para distribuir tráfico entre 2 pods nginx"
+
+spec:
+  # --------------------------------------------------------------------------
+  # TIPO DE SERVICIO: LoadBalancer
+  # --------------------------------------------------------------------------
+  type: LoadBalancer  # AJUSTE PRINCIPAL: Tipo LoadBalancer
+                      # Tipos disponibles:
+                      # - ClusterIP: Solo accesible dentro del cluster (default)
+                      # - NodePort: Accesible via IP_del_Nodo:Puerto
+                      # - LoadBalancer: Crea un balanceador externo (cloud o minikube)
+                      # - ExternalName: Mapea a un DNS externo
+
+  # --------------------------------------------------------------------------
+  # SELECTOR: Qué pods reciben el tráfico
+  # --------------------------------------------------------------------------
+  selector:
+    app: web-lb  # AJUSTE CRÍTICO: Debe coincidir con las labels de los pods
+                 # - El LoadBalancer enruta tráfico solo a pods con esta label
+                 # - Kubernetes actualiza automáticamente la lista de endpoints
+                 # - Si un pod falla el readinessProbe, sale de la rotación
+
+  # --------------------------------------------------------------------------
+  # PUERTOS: Configuración de puertos del LoadBalancer
+  # --------------------------------------------------------------------------
+  ports:
+  - name: http            # Nombre descriptivo del puerto
+    protocol: TCP         # Protocolo (TCP o UDP)
+    port: 80              # AJUSTE: Puerto expuesto por el LoadBalancer
+                         # - Los clientes se conectan a LoadBalancerIP:80
+    targetPort: 80        # AJUSTE: Puerto del contenedor (debe coincidir con containerPort)
+                         # - El LoadBalancer redirige a PodIP:80
+    # nodePort: 30080    # (Opcional) Puerto fijo en cada nodo (30000-32767)
+                         # - Si no se especifica, se asigna automáticamente
+
+  # --------------------------------------------------------------------------
+  # CONFIGURACIÓN DE SESIÓN: Afinidad de sesión (sticky sessions)
+  # --------------------------------------------------------------------------
+  sessionAffinity: None   # AJUSTE: None = balanceo puro round-robin
+                          # - None: Cada petición va al siguiente pod (balanceo perfecto)
+                          # - ClientIP: Mismo cliente siempre va al mismo pod
+                          # Usar ClientIP si necesitas mantener sesión
+
+  # Si usas sessionAffinity: ClientIP, configurar timeout:
+  # sessionAffinityConfig:
+  #   clientIP:
+  #     timeoutSeconds: 10800  # 3 horas de sticky session
+
+  # --------------------------------------------------------------------------
+  # BALANCEO DE TRÁFICO: Configuración avanzada
+  # --------------------------------------------------------------------------
+  externalTrafficPolicy: Cluster  # AJUSTE: Cluster o Local
+                                  # - Cluster: Puede ir a cualquier nodo (más balanceo)
+                                  # - Local: Solo va a pods en el nodo que recibe tráfico
+                                  #   (preserva IP origen, menos latencia, pero menos balanceo)
+
+  # --------------------------------------------------------------------------
+  # TIMEOUTS Y CONFIGURACIÓN DE SALUD
+  # --------------------------------------------------------------------------
+  healthCheckNodePort: 0  # 0 = asignado automáticamente por Kubernetes
+                         # Puerto usado para health checks del LoadBalancer
+
+  # loadBalancerSourceRanges:  # (Opcional) Restringir IPs que pueden acceder
+  #   - "10.0.0.0/8"          # Solo permitir estas redes
+  #   - "192.168.0.0/16"
+
+---
+# ============================================================================
+# HORIZONTAL POD AUTOSCALER (OPCIONAL) - ESCALADO AUTOMÁTICO
+# ============================================================================
+# Escala automáticamente de 2 a 5 pods según uso de CPU
+# Requiere metrics-server instalado en el cluster
+# ============================================================================
+
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: web-loadbalancer-hpa
+  labels:
+    app: web-lb
+
+spec:
+  # --------------------------------------------------------------------------
+  # OBJETIVO: Qué deployment escalar
+  # --------------------------------------------------------------------------
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: web-loadbalancer-deployment  # Nombre del deployment a escalar
+
+  # --------------------------------------------------------------------------
+  # LÍMITES DE ESCALADO: Mínimo y máximo de pods
+  # --------------------------------------------------------------------------
+  minReplicas: 2   # AJUSTE: Mínimo 2 pods (nuestro baseline)
+                   # - Nunca bajará de 2, incluso con carga cero
+  maxReplicas: 5   # AJUSTE: Máximo 5 pods bajo alta carga
+                   # - Protege contra escalado infinito
+                   # - Considera capacidad del cluster
+
+  # --------------------------------------------------------------------------
+  # MÉTRICAS: Cuándo escalar
+  # --------------------------------------------------------------------------
+  metrics:
+  # Métrica 1: CPU
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70  # AJUSTE: Escala cuando CPU promedio > 70%
+                                # - Si promedio de todos los pods > 70%, añade pod
+                                # - Si promedio < 70%, puede remover pod (respeta min)
+
+  # Métrica 2: Memoria (opcional, comentado por defecto)
+  # - type: Resource
+  #   resource:
+  #     name: memory
+  #     target:
+  #       type: Utilization
+  #       averageUtilization: 80  # Escala cuando memoria > 80%
+
+  # --------------------------------------------------------------------------
+  # COMPORTAMIENTO DEL ESCALADO: Velocidad de scale up/down
+  # --------------------------------------------------------------------------
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0      # Escala inmediatamente hacia arriba
+      policies:
+      - type: Percent
+        value: 100                       # AJUSTE: Puede doblar pods (100% más)
+        periodSeconds: 15                # Cada 15 segundos evalúa
+      - type: Pods
+        value: 2                         # O añadir máximo 2 pods
+        periodSeconds: 15                # Lo que sea menor
+      selectPolicy: Max                  # Usa la política más agresiva
+
+    scaleDown:
+      stabilizationWindowSeconds: 300    # AJUSTE: Espera 5 min antes de reducir
+                                        # - Evita flapping (subir/bajar constantemente)
+                                        # - La carga debe estar baja 5 min seguidos
+      policies:
+      - type: Pods
+        value: 1                         # AJUSTE: Remueve máximo 1 pod a la vez
+        periodSeconds: 60                # Cada 60 segundos
+      selectPolicy: Min                  # Usa la política más conservadora
+
+---
+# ============================================================================
+# POD DISRUPTION BUDGET (OPCIONAL) - PROTECCIÓN CONTRA INTERRUPCIONES
+# ============================================================================
+# Garantiza que al menos 1 pod esté disponible durante mantenimiento
+# ============================================================================
+
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: web-loadbalancer-pdb
+  labels:
+    app: web-lb
+
+spec:
+  minAvailable: 1    # AJUSTE: Al menos 1 pod debe estar disponible
+                     # - Durante drain de nodo, upgrades, etc.
+                     # - Alternativa: maxUnavailable: 1 (máximo 1 caído)
+  selector:
+    matchLabels:
+      app: web-lb    # Aplica a pods con esta label
+
+# ============================================================================
+# RESUMEN DE AJUSTES CLAVE PARA BALANCEADOR DE CARGA CON 2 PODS:
+# ============================================================================
+#
+# 1. RÉPLICAS: 2 pods (spec.replicas: 2)
+#    - Alta disponibilidad básica
+#    - Balanceo de carga 50/50
+#
+# 2. ESTRATEGIA: RollingUpdate con maxSurge:1, maxUnavailable:0
+#    - Actualizaciones sin downtime
+#    - Siempre al menos 2 pods disponibles
+#
+# 3. RECURSOS: requests (100m CPU, 64Mi RAM) y limits (500m CPU, 256Mi RAM)
+#    - Garantiza recursos mínimos
+#    - Evita que un pod consuma todo
+#
+# 4. PROBES: liveness, readiness y startup
+#    - Reinicia pods problemáticos (liveness)
+#    - Quita del balanceo pods no listos (readiness)
+#    - Maneja inicios lentos (startup)
+#
+# 5. ANTI-AFINIDAD: Prefiere nodos diferentes
+#    - Mejor disponibilidad si falla un nodo
+#    - No obligatorio (permite 1 nodo)
+#
+# 6. SERVICE: tipo LoadBalancer
+#    - Distribuye tráfico entre los 2 pods
+#    - IP externa accesible
+#    - Round-robin por defecto
+#
+# 7. HPA (OPCIONAL): Escala 2-5 pods según CPU > 70%
+#    - Maneja picos de tráfico automáticamente
+#    - Scale up rápido, scale down lento
+#
+# 8. PDB (OPCIONAL): minAvailable: 1
+#    - Protege durante mantenimiento
+#    - Garantiza disponibilidad
+#
+# ============================================================================
