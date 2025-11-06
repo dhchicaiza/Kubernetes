@@ -57,8 +57,10 @@ Aplicación web CRUD (Create, Read, Update, Delete) desarrollada con Flask y Pos
 ├── db-config.yaml         # ConfigMap y Secret
 ├── db-deployment.yaml     # Deployment de PostgreSQL
 ├── app-deployment.yaml    # Deployment de Flask
-├── init-db.sql            # Script de inicialización
-├── pasos_despliegue.md    # Guía detallada de despliegue
+├── deploy.sh              # Script de despliegue automático
+├── status.sh              # Script para ver estado del cluster
+├── cleanup.sh             # Script para limpiar recursos
+├── DEPLOYMENT.md          # Guía detallada de despliegue
 └── README.md              # Este archivo
 ```
 
@@ -67,10 +69,28 @@ Aplicación web CRUD (Create, Read, Update, Delete) desarrollada con Flask y Pos
 ### Requisitos Previos
 
 - Minikube instalado
-- kubectl instalado
 - Docker instalado
+- kubectl (opcional - minikube incluye su propio kubectl)
 
-### Despliegue en 3 Pasos
+### Opción 1: Despliegue Automático (Recomendado)
+
+```bash
+# 1. Iniciar Minikube y configurar Docker
+minikube start
+eval $(minikube docker-env)
+
+# 2. Ejecutar script de despliegue
+chmod +x deploy.sh
+./deploy.sh
+```
+
+El script `deploy.sh` automáticamente:
+- Construye la imagen Docker
+- Despliega todos los recursos de Kubernetes
+- Espera a que los servicios estén listos
+- Muestra la información de acceso
+
+### Opción 2: Despliegue Manual
 
 ```bash
 # 1. Iniciar Minikube y configurar Docker
@@ -81,12 +101,24 @@ eval $(minikube docker-env)
 docker build -t mi-app-web:v1 .
 
 # 3. Desplegar todo
-kubectl apply -f db-config.yaml
-kubectl apply -f db-deployment.yaml
-kubectl apply -f app-deployment.yaml
+minikube kubectl -- apply -f db-config.yaml
+minikube kubectl -- apply -f db-deployment.yaml
+minikube kubectl -- apply -f app-deployment.yaml
 
 # 4. Acceder a la aplicación
 minikube service app-web-service
+```
+
+> **Nota**: Si no tienes kubectl instalado, usa `minikube kubectl --` en lugar de `kubectl` en todos los comandos.
+
+### Scripts de Utilidad
+
+```bash
+# Ver estado del cluster y aplicaciones
+./status.sh
+
+# Limpiar todos los recursos
+./cleanup.sh
 ```
 
 ## 🔌 API Endpoints
@@ -102,7 +134,8 @@ minikube service app-web-service
 
 ## 📖 Documentación Completa
 
-Para instrucciones detalladas de despliegue, solución de problemas y conceptos de Kubernetes, consulta [pasos_despliegue.md](pasos_despliegue.md).
+- **[DEPLOYMENT.md](DEPLOYMENT.md)**: Guía detallada de despliegue con Minikube, solución de problemas y comandos útiles
+- **[pasos_despliegue.md](pasos_despliegue.md)**: Conceptos de Kubernetes y explicación paso a paso (si existe)
 
 ## 🧪 Pruebas
 
@@ -121,14 +154,25 @@ curl -X POST $URL/api/crear \
 
 ## 🧹 Limpieza
 
+### Usando el script
+
+```bash
+./cleanup.sh
+```
+
+### Manual
+
 ```bash
 # Eliminar todos los recursos
-kubectl delete -f app-deployment.yaml
-kubectl delete -f db-deployment.yaml
-kubectl delete -f db-config.yaml
+minikube kubectl -- delete -f app-deployment.yaml
+minikube kubectl -- delete -f db-deployment.yaml
+minikube kubectl -- delete -f db-config.yaml
 
 # Detener Minikube
 minikube stop
+
+# Eliminar el cluster (opcional)
+minikube delete
 ```
 
 ## 🎓 Conceptos de Kubernetes Aplicados
