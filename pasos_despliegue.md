@@ -1,118 +1,365 @@
+# Guía Completa de Despliegue - CRUD con Kubernetes
 
-Desplige de una aplicación web simple (Python/Flask) con una base de datos (PostgreSQL) en un clúster de Kubernetes (Minikube).
+Despliegue de una aplicación web completa (Python/Flask) con base de datos (PostgreSQL) en Kubernetes (Minikube).
 
-## Componentes
+## 🎯 Características del Proyecto
 
-**Base de Datos** | Almacena los datos y la tabla `registros`. | `db-deployment.yaml` | PostgreSQL 14 | `ClusterIP` (Solo interno) |
-**Aplicación Web** | Provee la interfaz gráfica CRUD y la lógica de conexión a la BD. | `app-deployment.yaml` | Python / Flask | `NodePort` (Acceso externo) |
+- ✅ **CRUD Completo**: Crear, Leer, Actualizar y Eliminar registros
+- ✅ **API REST**: Endpoints bien estructurados
+- ✅ **Interfaz Web**: HTML/CSS/JavaScript interactivo
+- ✅ **Configuración Segura**: Uso de ConfigMaps y Secrets
+- ✅ **Inicialización Automática**: Tabla creada automáticamente
+- ✅ **Arquitectura de Microservicios**: Base de datos y aplicación en pods separados
 
-## Requisitos y Preparación
+## 📦 Componentes
 
-1.  **Instalar:** [Minikube](https://minikube.sigs.k8s.io/docs/start/) y `kubectl`.
-2.  **Iniciar el clúster:**
-    # Inicia el entorno de Minikube, creando un nodo de Kubernetes en la máquina local.
-   
-    minikube start
-    
-3.  **Configurar el entorno Docker de Minikube** (para construir la imagen de la app):
-    # Configura tu terminal para que el comando 'docker' apunte al demonio de Docker dentro de Minikube.
-    # Esto permite construir imágenes directamente en el clúster, evitando subirlas a un registro público.
-    eval $(minikube docker-env)
-    
----
+| Componente | Descripción | Archivo | Tecnología | Tipo de Servicio |
+|------------|-------------|---------|------------|------------------|
+| **Base de Datos** | Almacena los datos en la tabla `registros` | `db-deployment.yaml` | PostgreSQL 14 | `ClusterIP` (Solo interno) |
+| **Aplicación Web** | API REST y interfaz gráfica CRUD | `app-deployment.yaml` | Python/Flask | `NodePort` (Acceso externo) |
+| **Configuración** | ConfigMap y Secret para variables | `db-config.yaml` | Kubernetes | - |
 
-## Despliegue de la Base de Datos (PostgreSQL)
+## 🔌 Endpoints de la API
 
-### 1.1. Configuración del Deployment y Service de la BD
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| `GET` | `/api/registros` | Lista todos los registros |
+| `GET` | `/api/registros/<id>` | Obtiene un registro específico |
+| `POST` | `/api/crear` | Crea un nuevo registro |
+| `PUT` | `/api/registros/<id>` | Actualiza un registro existente |
+| `DELETE` | `/api/registros/<id>` | Elimina un registro |
+| `GET` | `/` | Interfaz web HTML |
 
-Cree el archivo `db-deployment.yaml` con las credenciales de entorno. Este archivo define dos objetos:
-**Deployment:** Se encarga de crear y mantener el Pod que ejecuta el contenedor de PostgreSQL.
-**Service:** Expone la base de datos dentro del clúster con un nombre DNS fijo (`postgres-service`) para que la aplicación pueda encontrarla.
+## 📋 Requisitos Previos
 
-### 1.2. Aplicación y Verificación
+- [Minikube](https://minikube.sigs.k8s.io/docs/start/) instalado
+- `kubectl` instalado
+- Docker instalado
+- Navegador web
 
-1.  **Desplegar la BD y el Service:**
-    # Aplica la configuración del archivo YAML, creando el Deployment y el Service en Kubernetes.
-    kubectl apply -f db-deployment.yaml
+## 🚀 Preparación del Entorno
 
-2.  **Verificar el estado del Pod:**
-    # Lista los Pods que tienen la etiqueta 'app=postgres'.
-    # Espere hasta que la columna 'STATUS' muestre 'Running'.
-    kubectl get pods -l app=postgres
-    kubectl get services
+### 1. Iniciar Minikube
 
-### 1.3. Conexión y Creación de la Tabla
+```bash
+# Inicia el clúster de Kubernetes local
+minikube start
 
-1.  **Obtener el nombre exacto del Pod** de PostgreSQL (ej. `postgres-deployment-xxxx-yyyy`).
-    # Filtra los pods por la etiqueta y extrae solo el nombre del pod.
-    POD_NAME=$(kubectl get pods -l app=postgres -o jsonpath='{.items[0].metadata.name}')
-    echo "Conectándose a: $POD_NAME"
+# Verifica que el clúster esté funcionando
+kubectl cluster-info
+kubectl get nodes
+```
 
-2.  **Acceder a la terminal del Pod:**
-    # Ejecuta un comando 'bash' de forma interactiva dentro del contenedor del Pod de PostgreSQL.
-    kubectl exec -it $POD_NAME -- bash
+### 2. Configurar el Entorno Docker de Minikube
 
-3.  **Acceder al cliente `psql` y crear la tabla `registros`:**
-    # Dentro del Pod, conéctate a la base de datos 'mibase' con el usuario 'usuario'.
-    psql -U usuario -d mibase
+```bash
+# Configura la terminal para usar el Docker de Minikube
+# Esto permite construir imágenes directamente en el clúster
+eval $(minikube docker-env)
 
-4.  Dentro del prompt (`mibase=#`), **ejecute las sentencias SQL:**
-    -- Crea la tabla para almacenar los datos.
-    CREATE TABLE registros (
-        id SERIAL PRIMARY KEY,
-        nombre VARCHAR(100),
-        mensaje VARCHAR(255),
-        fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
+# Verifica la configuración
+docker ps
+```
 
-    -- \dt: Muestra las tablas creadas
-    \dt
-
-    -- \q: Salir de psql.
-    \q
-
-5.  **Salir del Pod:**
-    exit
+**Nota**: Este comando debe ejecutarse en cada nueva terminal que uses.
 
 ---
 
-## Despliegue de la Aplicación Web (Flask/Python)
+## 📊 Paso 1: Desplegar ConfigMap y Secret
 
-La aplicación Flask provee la lógica de conexión y la interfaz gráfica HTML/JS para el CRUD.
+### 1.1. Aplicar la Configuración
 
-### 2.1. Estructura de Archivos
+```bash
+# Aplica el ConfigMap y Secret con las credenciales
+kubectl apply -f db-config.yaml
 
-Asegúrese de tener los siguientes archivos en su directorio de trabajo: `app.py`, `Dockerfile`, `requirements.txt` y la carpeta `templates/index.html`. El código de `app.py` debe usar el nombre del service `postgres-service` para la conexión.
+# Verifica que se hayan creado correctamente
+kubectl get configmap
+kubectl get secret
+```
 
-### 2.2. Construir la Imagen Docker
+**¿Qué hace esto?**
+- **ConfigMap**: Almacena configuración no sensible (nombres de base de datos, usuarios, hosts)
+- **Secret**: Almacena información sensible (contraseñas) de forma segura
+- **Script de inicialización**: Se monta automáticamente en PostgreSQL para crear la tabla
 
-Construir y etiquetar la imagen. Este proceso empaqueta la aplicación Flask en una imagen de Docker que Kubernetes puede usar.
-# Construye una imagen de Docker llamada 'mi-app-web:v1' usando el Dockerfile
+---
+
+## 🗄️ Paso 2: Desplegar la Base de Datos (PostgreSQL)
+
+### 2.1. Desplegar PostgreSQL
+
+```bash
+# Aplica el deployment de PostgreSQL
+kubectl apply -f db-deployment.yaml
+
+# Verifica el estado del pod
+kubectl get pods -l app=postgres
+
+# Espera hasta que el STATUS sea "Running"
+kubectl wait --for=condition=ready pod -l app=postgres --timeout=120s
+
+# Verifica el servicio
+kubectl get service postgres-service
+```
+
+### 2.2. Verificar la Inicialización Automática
+
+```bash
+# Obtén el nombre del pod de PostgreSQL
+POD_NAME=$(kubectl get pods -l app=postgres -o jsonpath='{.items[0].metadata.name}')
+echo "Pod de PostgreSQL: $POD_NAME"
+
+# Verifica los logs para confirmar que la tabla se creó
+kubectl logs $POD_NAME | grep -i "registros"
+
+# (Opcional) Conectarse a PostgreSQL para verificar manualmente
+kubectl exec -it $POD_NAME -- psql -U usuario_db -d registro_db -c "\dt"
+```
+
+**¿Qué sucede aquí?**
+1. PostgreSQL inicia automáticamente
+2. Lee el script `init-db.sql` del ConfigMap
+3. Crea la tabla `registros` automáticamente
+4. No necesitas crear la tabla manualmente
+
+---
+
+## 🌐 Paso 3: Desplegar la Aplicación Web (Flask)
+
+### 3.1. Estructura de Archivos
+
+Asegúrate de tener estos archivos en tu directorio:
+```
+├── app.py                  # Aplicación Flask con API REST completa
+├── Dockerfile              # Instrucciones para construir la imagen
+├── requirements.txt        # Dependencias de Python
+├── templates/
+│   └── index.html         # Interfaz web con CRUD completo
+├── db-config.yaml         # ConfigMap y Secret
+├── db-deployment.yaml     # Deployment de PostgreSQL
+└── app-deployment.yaml    # Deployment de la aplicación
+```
+
+### 3.2. Construir la Imagen Docker
+
+```bash
+# Verifica que estés usando el Docker de Minikube
+eval $(minikube docker-env)
+
+# Construye la imagen de la aplicación
 docker build -t mi-app-web:v1 .
 
-### 2.3. Configuración del Deployment y Service de la App
+# Verifica que la imagen se haya creado
+docker images | grep mi-app-web
+```
 
-Cree el archivo `app-deployment.yaml` para desplegar la aplicación y exponerla con `NodePort`.
-*   **Deployment:** Crea el Pod para la aplicación web usando la imagen Docker que acabamos de construir.
-*   **Service (`NodePort`):** Expone la aplicación fuera del clúster para que podamos acceder a ella desde un navegador.
+### 3.3. Desplegar la Aplicación
 
-### 2.4. Aplicar y Probar el CRUD Gráfico
+```bash
+# Aplica el deployment de la aplicación
+kubectl apply -f app-deployment.yaml
 
-1.  **Desplegar la aplicación y el Service:**
-    # Aplica la configuración para crear el Deployment y el Service de la aplicación web.
-    kubectl apply -f app-deployment.yaml
+# Verifica el estado del pod
+kubectl get pods -l app=app-web
 
-2.  **Obtener la URL de acceso:**
-    # Minikube proporciona una URL accesible desde tu máquina para el Service de tipo NodePort.
-    minikube service app-web-service --url
+# Espera hasta que el STATUS sea "Running"
+kubectl wait --for=condition=ready pod -l app=app-web --timeout=120s
+
+# Verifica el servicio
+kubectl get service app-web-service
+```
+
+### 3.4. Acceder a la Aplicación
+
+```bash
+# Obtén la URL de acceso
+minikube service app-web-service --url
+
+# O abre directamente en el navegador
+minikube service app-web-service
+```
+
+**¡Listo!** Ahora deberías poder:
+- ✅ Ver la interfaz web en tu navegador
+- ✅ Crear nuevos registros
+- ✅ Listar todos los registros
+- ✅ Editar registros existentes
+- ✅ Eliminar registros
 
 ---
 
-## Limpieza
+## 🔍 Verificación y Pruebas
 
-# Elimina los recursos creados a partir de los archivos YAML.
+### Verificar todos los recursos
+
+```bash
+# Ver todos los pods
+kubectl get pods
+
+# Ver todos los servicios
+kubectl get services
+
+# Ver ConfigMaps y Secrets
+kubectl get configmap,secret
+
+# Ver logs de la aplicación
+kubectl logs -l app=app-web
+
+# Ver logs de la base de datos
+kubectl logs -l app=postgres
+```
+
+### Probar la API directamente
+
+```bash
+# Obtén la URL del servicio
+URL=$(minikube service app-web-service --url)
+
+# Listar todos los registros
+curl $URL/api/registros
+
+# Crear un nuevo registro
+curl -X POST $URL/api/crear \
+  -H "Content-Type: application/json" \
+  -d '{"nombre":"Juan Pérez","mensaje":"Hola desde curl!"}'
+
+# Actualizar un registro (cambia el ID según corresponda)
+curl -X PUT $URL/api/registros/1 \
+  -H "Content-Type: application/json" \
+  -d '{"nombre":"Juan Actualizado","mensaje":"Mensaje actualizado"}'
+
+# Eliminar un registro
+curl -X DELETE $URL/api/registros/1
+```
+
+---
+
+## 🔧 Solución de Problemas
+
+### El pod de PostgreSQL no inicia
+
+```bash
+# Ver el estado detallado del pod
+kubectl describe pod -l app=postgres
+
+# Ver los logs
+kubectl logs -l app=postgres
+
+# Verificar que el ConfigMap y Secret existan
+kubectl get configmap db-config
+kubectl get secret db-secret
+```
+
+### La aplicación no puede conectarse a la base de datos
+
+```bash
+# Verifica que el servicio de PostgreSQL esté activo
+kubectl get service postgres-service
+
+# Verifica las variables de entorno en el pod de la aplicación
+kubectl exec -it $(kubectl get pod -l app=app-web -o jsonpath='{.items[0].metadata.name}') -- env | grep DB
+
+# Verifica los logs de la aplicación
+kubectl logs -l app=app-web
+```
+
+### La imagen Docker no se encuentra
+
+```bash
+# Asegúrate de estar usando el Docker de Minikube
+eval $(minikube docker-env)
+
+# Reconstruye la imagen
+docker build -t mi-app-web:v1 .
+
+# Verifica que la imagen exista
+docker images | grep mi-app-web
+
+# Elimina y recrea el deployment
 kubectl delete -f app-deployment.yaml
+kubectl apply -f app-deployment.yaml
+```
+
+---
+
+## 🧹 Limpieza
+
+### Eliminar todos los recursos
+
+```bash
+# Elimina la aplicación
+kubectl delete -f app-deployment.yaml
+
+# Elimina la base de datos
 kubectl delete -f db-deployment.yaml
 
-# Detiene el clúster de Minikube.
+# Elimina ConfigMap y Secret
+kubectl delete -f db-config.yaml
+
+# Verifica que todo se haya eliminado
+kubectl get all
+```
+
+### Detener Minikube
+
+```bash
+# Detiene el clúster
 minikube stop
+
+# (Opcional) Elimina completamente el clúster
+minikube delete
+```
+
+---
+
+## 📚 Conceptos Clave de Kubernetes
+
+### 🔑 ConfigMap vs Secret
+
+- **ConfigMap**: Para configuración no sensible (nombres, URLs, puertos)
+- **Secret**: Para información sensible (contraseñas, tokens, claves API)
+
+### 🌐 Tipos de Services
+
+- **ClusterIP** (Base de datos): Solo accesible dentro del clúster
+- **NodePort** (Aplicación): Accesible desde fuera del clúster en un puerto específico
+- **LoadBalancer**: Para entornos cloud (AWS, GCP, Azure)
+
+### 📦 Deployments
+
+- Gestiona réplicas de pods
+- Actualiza aplicaciones sin downtime
+- Rollback automático si hay errores
+
+### 🔄 Comunicación entre Pods
+
+1. La aplicación se conecta a `postgres-service` (nombre DNS interno)
+2. Kubernetes resuelve el DNS al IP del pod de PostgreSQL
+3. La comunicación es interna al clúster (no sale a Internet)
+
+---
+
+## 🎓 Próximos Pasos para Aprender
+
+1. **Persistencia de Datos**: Usar PersistentVolumes para que los datos no se pierdan
+2. **Escalabilidad**: Aumentar réplicas de la aplicación
+3. **Health Checks**: Agregar liveness y readiness probes
+4. **Resource Limits**: Configurar límites de CPU y memoria
+5. **Namespaces**: Organizar recursos en diferentes espacios
+6. **Ingress**: Usar un ingress controller en lugar de NodePort
+7. **Helm**: Empaquetar la aplicación con Helm charts
+8. **CI/CD**: Automatizar el despliegue con GitHub Actions o GitLab CI
+
+---
+
+## 📖 Recursos Adicionales
+
+- [Documentación oficial de Kubernetes](https://kubernetes.io/docs/)
+- [Tutorial de Minikube](https://minikube.sigs.k8s.io/docs/tutorials/)
+- [PostgreSQL en Kubernetes](https://kubernetes.io/docs/tutorials/stateful-application/postgres/)
+- [Flask Documentation](https://flask.palletsprojects.com/)
+
+---
+
+**¡Felicidades!** 🎉 Has desplegado exitosamente una aplicación CRUD completa en Kubernetes con arquitectura de microservicios.

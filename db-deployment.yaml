@@ -1,4 +1,4 @@
-# db-deployment.yaml
+# db-deployment.yaml - Deployment de PostgreSQL con ConfigMap, Secret e inicialización automática
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -19,14 +19,41 @@ spec:
       - name: postgres
         image: postgres:14
         ports:
-        - containerPort: 5432 # Puerto estándar de PostgreSQL
+        - containerPort: 5432
         env:
+        # Variables desde ConfigMap
         - name: POSTGRES_DB
-          value: "registro_db"
+          valueFrom:
+            configMapKeyRef:
+              name: db-config
+              key: POSTGRES_DB
         - name: POSTGRES_USER
-          value: "usuario_db"
+          valueFrom:
+            configMapKeyRef:
+              name: db-config
+              key: POSTGRES_USER
+        # Variable sensible desde Secret
         - name: POSTGRES_PASSWORD
-          value: "123456"
+          valueFrom:
+            secretKeyRef:
+              name: db-secret
+              key: POSTGRES_PASSWORD
+        volumeMounts:
+        # Monta el script de inicialización en el directorio especial de PostgreSQL
+        - name: init-script
+          mountPath: /docker-entrypoint-initdb.d
+          readOnly: true
+        # Volume para persistir datos (opcional pero recomendado)
+        - name: postgres-storage
+          mountPath: /var/lib/postgresql/data
+      volumes:
+      # Volume con el script de inicialización desde ConfigMap
+      - name: init-script
+        configMap:
+          name: db-init-script
+      # Volume para persistencia de datos (emptyDir para desarrollo, PVC para producción)
+      - name: postgres-storage
+        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service

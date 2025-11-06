@@ -1,15 +1,16 @@
-# app.py (Código con ruta para servir la interfaz web)
+# app.py - API CRUD completo con Flask y PostgreSQL
 import os
 import psycopg2
 from flask import Flask, jsonify, request, render_template
 
-# --- Configuración de Conexión (Igual que antes) ---
+# --- Configuración de Conexión ---
 app = Flask(__name__)
-# ... (variables de entorno DB_HOST, DB_USER, etc., igual que antes) ...
-DB_HOST = os.environ.get('DB_HOST', 'postgres-service') 
-DB_USER = os.environ.get('POSTGRES_USER', 'usuario')
-DB_PASSWORD = os.environ.get('POSTGRES_PASSWORD', 'miclave')
-DB_NAME = os.environ.get('POSTGRES_DB', 'mibase')
+
+# Variables de entorno para la conexión a PostgreSQL
+DB_HOST = os.environ.get('DB_HOST', 'postgres-service')
+DB_USER = os.environ.get('POSTGRES_USER', 'usuario_db')
+DB_PASSWORD = os.environ.get('POSTGRES_PASSWORD', 'clave_segura_123')
+DB_NAME = os.environ.get('POSTGRES_DB', 'registro_db')
 
 def get_db_connection():
     # Intenta conectarse usando las variables del entorno K8s
@@ -45,7 +46,7 @@ def crear_registro():
 # RUTA DE CONSULTA (API - GET)
 @app.route('/api/registros', methods=['GET'])
 def listar_registros():
-    # ... (Lógica de consulta de registros, igual que antes, pero renombramos la ruta a /api/registros) ...
+    """Lista todos los registros de la base de datos"""
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -53,11 +54,78 @@ def listar_registros():
         registros = cur.fetchall()
         cur.close()
         conn.close()
-        
+
         resultado = [{"id": r[0], "nombre": r[1], "mensaje": r[2], "fecha": r[3].strftime("%Y-%m-%d %H:%M:%S")} for r in registros]
         return jsonify(resultado)
     except Exception as e:
         return jsonify({"error": "Error al conectar o consultar la base de datos", "details": str(e)}), 500
+
+# RUTA DE OBTENER UN REGISTRO (API - GET)
+@app.route('/api/registros/<int:id>', methods=['GET'])
+def obtener_registro(id):
+    """Obtiene un registro específico por ID"""
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT id, nombre, mensaje, fecha FROM registros WHERE id = %s;", (id,))
+        registro = cur.fetchone()
+        cur.close()
+        conn.close()
+
+        if registro:
+            resultado = {"id": registro[0], "nombre": registro[1], "mensaje": registro[2], "fecha": registro[3].strftime("%Y-%m-%d %H:%M:%S")}
+            return jsonify(resultado)
+        else:
+            return jsonify({"error": "Registro no encontrado"}), 404
+    except Exception as e:
+        return jsonify({"error": "Error al consultar el registro", "details": str(e)}), 500
+
+# RUTA DE ACTUALIZACIÓN (API - PUT)
+@app.route('/api/registros/<int:id>', methods=['PUT'])
+def actualizar_registro(id):
+    """Actualiza un registro existente"""
+    try:
+        data = request.get_json()
+        nombre = data.get('nombre')
+        mensaje = data.get('mensaje')
+
+        if not nombre or not mensaje:
+            return jsonify({"error": "Nombre y mensaje son requeridos"}), 400
+
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("UPDATE registros SET nombre = %s, mensaje = %s WHERE id = %s", (nombre, mensaje, id))
+
+        if cur.rowcount == 0:
+            conn.close()
+            return jsonify({"error": "Registro no encontrado"}), 404
+
+        conn.commit()
+        cur.close()
+        conn.close()
+        return jsonify({"status": "Registro actualizado exitosamente"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# RUTA DE ELIMINACIÓN (API - DELETE)
+@app.route('/api/registros/<int:id>', methods=['DELETE'])
+def eliminar_registro(id):
+    """Elimina un registro por ID"""
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("DELETE FROM registros WHERE id = %s", (id,))
+
+        if cur.rowcount == 0:
+            conn.close()
+            return jsonify({"error": "Registro no encontrado"}), 404
+
+        conn.commit()
+        cur.close()
+        conn.close()
+        return jsonify({"status": "Registro eliminado exitosamente"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 # --- Rutas de Interfaz Gráfica (Web Endpoints) ---
 
