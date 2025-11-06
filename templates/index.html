@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CRUD Registrar Personas</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { max-width: 800px; margin: auto; }
+        h2 { border-bottom: 2px solid #ccc; padding-bottom: 5px; }
+        form { margin-bottom: 30px; padding: 20px; border: 1px solid #eee; border-radius: 5px; }
+        input[type="text"], textarea { width: 100%; padding: 8px; margin-bottom: 10px; box-sizing: border-box; }
+        button { background-color: #007bff; color: white; padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>CRUD Registrar Personas</h1>
+
+        <h2>Crear Nuevo Registro</h2>
+        <form id="createForm">
+            <label for="nombre">Nombre:</label>
+            <input type="text" id="nombre" required>
+            
+            <label for="mensaje">Mensaje:</label>
+            <textarea id="mensaje" required></textarea>
+            
+            <button type="submit">Guardar Registro</button>
+            <p id="statusMessage" style="margin-top: 10px;"></p>
+        </form>
+
+        <h2>Listado de Registros</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Nombre</th>
+                    <th>Mensaje</th>
+                    <th>Fecha</th>
+                </tr>
+            </thead>
+            <tbody id="registrosTableBody">
+                </tbody>
+        </table>
+    </div>
+
+    <script>
+        const tableBody = document.getElementById('registrosTableBody');
+        const form = document.getElementById('createForm');
+        const statusMessage = document.getElementById('statusMessage');
+
+        // Función para cargar y mostrar los registros
+        function loadRecords() {
+            fetch('/api/registros') // Consulta el endpoint GET /api/registros
+                .then(response => response.json())
+                .then(data => {
+                    tableBody.innerHTML = ''; // Limpia la tabla
+                    if (data.error) {
+                        tableBody.innerHTML = `<tr><td colspan="4" style="color:red;">Error de BD: ${data.details}</td></tr>`;
+                        return;
+                    }
+                    data.forEach(record => {
+                        const row = tableBody.insertRow();
+                        row.insertCell().textContent = record.id;
+                        row.insertCell().textContent = record.nombre;
+                        row.insertCell().textContent = record.mensaje;
+                        row.insertCell().textContent = record.fecha;
+                    });
+                })
+                .catch(error => {
+                    console.error('Error al cargar registros:', error);
+                    tableBody.innerHTML = `<tr><td colspan="4" style="color:red;">Error de conexión con la API.</td></tr>`;
+                });
+        }
+
+        // Manejador del formulario para crear un registro
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const nombre = document.getElementById('nombre').value;
+            const mensaje = document.getElementById('mensaje').value;
+
+            fetch('/api/crear', { // Envía datos al endpoint POST /api/crear
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ nombre, mensaje })
+            })
+            .then(response => response.json())
+            .then(data => {
+                statusMessage.textContent = data.status || `Error: ${data.error}`;
+                statusMessage.style.color = data.status ? 'green' : 'red';
+                form.reset(); // Limpia el formulario
+                loadRecords(); // Recarga la tabla para mostrar el nuevo registro
+            })
+            .catch(error => {
+                statusMessage.textContent = 'Error al enviar datos.';
+                statusMessage.style.color = 'red';
+                console.error('Error en la creación:', error);
+            });
+        });
+
+        // Cargar registros al iniciar la página
+        loadRecords();
+        // Opcional: recargar la lista cada 10 segundos
+        setInterval(loadRecords, 10000); 
+
+    </script>
+</body>
+</html>

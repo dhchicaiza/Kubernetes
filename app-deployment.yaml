@@ -1,0 +1,45 @@
+# app-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-web-deployment
+  labels:
+    app: app-web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: app-web
+  template:
+    metadata:
+      labels:
+        app: app-web
+    spec:
+      containers:
+      - name: app-web
+        image: mi-app-web:v1 # Usamos la imagen local
+        imagePullPolicy: Never # Importante para usar la imagen local de Minikube
+        ports:
+        - containerPort: 5000
+        env:
+        - name: DB_HOST
+          value: "postgres-service" # Nombre del Service de la BD
+        - name: POSTGRES_USER
+          value: "registro_db"
+        - name: POSTGRES_PASSWORD
+          value: "123456"
+        - name: POSTGRES_DB
+          value: "registro_db"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: app-web-service
+spec:
+  selector:
+    app: app-web
+  ports:
+    - protocol: TCP
+      port: 8080 # Puerto que el Service expone
+      targetPort: 5000 # Puerto del contenedor (Flask)
+  type: NodePort # Para acceder desde tu máquina
